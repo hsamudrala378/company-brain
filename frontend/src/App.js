@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+const API_URL = (process.env.REACT_APP_API_URL || "http://127.0.0.1:8000")
+  .trim()
+  .split(/\s+/)[0]
+  .replace(/\/$/, "");
 
 const getRequestError = (err, fallback) => {
   const detail = err.response?.data?.detail;
