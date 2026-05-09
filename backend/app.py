@@ -105,10 +105,14 @@ def extract_pdf_chunks(file_path: Path, original_name: str, document_id: str):
     return extracted_chunks
 
 
-def build_prompt(question: str, retrieved_chunks):
+def build_prompt(question: str, retrieved_chunks, recent_history):
     context = "\n\n".join(
         f"[{item['source']} - page {item['page']}]\n{item['text']}"
         for item in retrieved_chunks
+    )
+    conversation = "\n\n".join(
+        f"User: {item['question']}\nAssistant: {item['answer']}"
+        for item in recent_history[-5:]
     )
 
     context_instruction = (
@@ -119,12 +123,17 @@ def build_prompt(question: str, retrieved_chunks):
     )
 
     return f"""
-You are Company Brain, a helpful AI support assistant for companies.
-You help employees, HR teams, founders, operations teams, and managers with clear practical answers.
-You can answer general business, HR, onboarding, policy, operations, productivity, and technical documentation questions.
+You are Company Brain, a calm, capable AI agent for companies.
+You work like a company-focused ChatGPT for employees, HR teams, founders, operations teams, managers, and support teams.
+You can help with HR, onboarding, policies, operations, SOPs, productivity, customer support, internal communication, planning, research, technical documentation, drafting, summarizing, troubleshooting, and decision support.
 {context_instruction}
-If document context is missing or not relevant, answer from general knowledge and clearly say it is general guidance, not from uploaded documents.
-Keep answers useful, structured, and easy to act on.
+If document context is missing or not relevant, answer from general knowledge without forcing the user to upload a document.
+Be practical, concise, and action-oriented. Ask a short follow-up question only when needed.
+Do not claim to access private company information unless it is present in the uploaded document context.
+When giving legal, medical, financial, or compliance advice, keep it general and recommend checking with a qualified professional.
+
+Recent conversation:
+{conversation}
 
 Context:
 {context}
@@ -236,7 +245,8 @@ def ask_question(request: QuestionRequest):
 
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": build_prompt(question, retrieved_chunks)}],
+        messages=[{"role": "user", "content": build_prompt(question, retrieved_chunks, chat_history)}],
+        temperature=0.4,
     )
 
     answer = response.choices[0].message.content

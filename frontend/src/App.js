@@ -9,16 +9,16 @@ const API_URL = (process.env.REACT_APP_API_URL || "http://127.0.0.1:8000")
 
 const welcomeMessage = {
   type: "ai",
-  text: "I am Company Brain, your company AI support assistant. Ask about uploaded policies and SOPs, or ask general HR, operations, onboarding, productivity, and business questions.",
+  text: "I am Company Brain, your company AI agent. Ask me for help with HR, onboarding, operations, SOPs, customer support, planning, writing, technical documentation, or uploaded company files.",
   sources: [],
   mode: "general",
 };
 
 const starterPrompts = [
-  "Create an onboarding checklist for a new employee.",
-  "Summarize the uploaded policy in simple language.",
-  "How can a small company reduce repeated HR questions?",
-  "Draft a professional leave policy announcement.",
+  "Create an onboarding checklist for a new employee",
+  "Draft a professional email to announce a policy change",
+  "Help me design a customer support workflow",
+  "Summarize the uploaded document in simple language",
 ];
 
 const navItems = ["Workspace", "Documents", "Analytics", "Settings"];
@@ -58,10 +58,10 @@ function App() {
     const pages = documents.reduce((total, doc) => total + (doc.pages || 0), 0);
 
     return [
+      { label: "AI chats", value: history.length },
       { label: "Documents", value: documents.length },
-      { label: "Pages", value: pages },
+      { label: "Pages indexed", value: pages },
       { label: "Knowledge chunks", value: chunks },
-      { label: "Saved chats", value: history.length },
     ];
   }, [documents, history]);
 
@@ -111,7 +111,7 @@ function App() {
         ...prev,
         {
           type: "ai",
-          text: `${response.data.document.name} is indexed and ready for document questions.`,
+          text: `${response.data.document.name} is indexed. I can now use it when it is relevant, and I can still answer general company questions too.`,
           sources: [],
           mode: "documents",
         },
@@ -187,8 +187,8 @@ function App() {
     <section className="chat-panel">
       <div className="panel-header">
         <div>
-          <p className="section-label">AI support</p>
-          <h3>Company Brain chat</h3>
+          <p className="section-label">AI agent</p>
+          <h3>Ask anything</h3>
         </div>
         {isAsking && <div className="typing-indicator">Thinking</div>}
       </div>
@@ -235,7 +235,7 @@ function App() {
       >
         <input
           type="text"
-          placeholder="Ask anything about company support, HR, operations, SOPs, or uploaded PDFs..."
+          placeholder="Message Company Brain..."
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
         />
@@ -257,9 +257,9 @@ function App() {
       onDrop={handleDrop}
     >
       <div className="upload-icon">+</div>
-      <p className="section-label">Upload center</p>
-      <h3>Add company PDFs</h3>
-      <p>Upload sample policies, onboarding manuals, SOPs, or technical guides for document-grounded answers.</p>
+      <p className="section-label">Optional knowledge</p>
+      <h3>Add company files</h3>
+      <p>Upload sample policies, SOPs, onboarding manuals, or guides when you want document-grounded answers.</p>
       <label className="file-picker">
         <input
           type="file"
@@ -269,7 +269,7 @@ function App() {
         {file ? file.name : "Choose PDF"}
       </label>
       <button className="upload-button" disabled={isUploading} onClick={() => uploadPDF()}>
-        {isUploading ? "Indexing..." : "Upload and index"}
+        {isUploading ? "Indexing..." : "Add knowledge"}
       </button>
     </section>
   );
@@ -316,8 +316,8 @@ function App() {
         <section className="full-panel">
           <div className="panel-header compact">
             <div>
-              <p className="section-label">Usage analytics</p>
-              <h3>Demo workspace activity</h3>
+              <p className="section-label">Agent analytics</p>
+              <h3>Workspace activity</h3>
             </div>
           </div>
           <div className="analytics-grid">
@@ -339,7 +339,7 @@ function App() {
             </div>
           </div>
           <div className="insight-note">
-            Most real SaaS analytics later should include active users, top questions, unanswered topics, document usage, and AI cost.
+            Later this can show active employees, most asked topics, unresolved questions, document usage, saved time, and AI cost.
           </div>
         </section>
       );
@@ -351,13 +351,13 @@ function App() {
           <div className="panel-header compact">
             <div>
               <p className="section-label">Workspace settings</p>
-              <h3>Company AI Support configuration</h3>
+              <h3>Company AI Agent configuration</h3>
             </div>
           </div>
           <div className="settings-list">
             <div>
-              <strong>Assistant mode</strong>
-              <span>Answers from uploaded documents when available, otherwise gives general company support guidance.</span>
+              <strong>Agent mode</strong>
+              <span>Works like a general AI assistant for company work. Uploaded documents are optional extra knowledge.</span>
             </div>
             <div>
               <strong>Demo privacy</strong>
@@ -393,7 +393,7 @@ function App() {
           <div className="brand-mark">CB</div>
           <div>
             <p className="eyebrow">Company Brain</p>
-            <h1>AI Support OS</h1>
+            <h1>AI Agent OS</h1>
           </div>
         </div>
 
@@ -434,8 +434,8 @@ function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Company AI support</p>
-            <h2>{activeView === "Workspace" ? "Ask anything your team needs" : activeView}</h2>
+            <p className="eyebrow">Company AI agent</p>
+            <h2>{activeView === "Workspace" ? "How can I help your team?" : activeView}</h2>
           </div>
           <div className="topbar-actions">
             <button className="secondary-button" onClick={startNewChat}>
