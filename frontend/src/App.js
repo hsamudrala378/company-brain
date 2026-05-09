@@ -7,6 +7,22 @@ const API_URL = (process.env.REACT_APP_API_URL || "http://127.0.0.1:8000")
   .split(/\s+/)[0]
   .replace(/\/$/, "");
 
+const welcomeMessage = {
+  type: "ai",
+  text: "I am Company Brain, your company AI support assistant. Ask about uploaded policies and SOPs, or ask general HR, operations, onboarding, productivity, and business questions.",
+  sources: [],
+  mode: "general",
+};
+
+const starterPrompts = [
+  "Create an onboarding checklist for a new employee.",
+  "Summarize the uploaded policy in simple language.",
+  "How can a small company reduce repeated HR questions?",
+  "Draft a professional leave policy announcement.",
+];
+
+const navItems = ["Workspace", "Documents", "Analytics", "Settings"];
+
 const getRequestError = (err, fallback) => {
   const detail = err.response?.data?.detail;
 
@@ -25,28 +41,11 @@ const getRequestError = (err, fallback) => {
   return fallback;
 };
 
-const starterPrompts = [
-  "Summarize the leave policy for a new employee.",
-  "What should a new hire complete in week one?",
-  "Which SOP mentions escalation or approvals?",
-];
-
-const recentChats = [
-  "Onboarding checklist",
-  "Security policy summary",
-  "Leave approval workflow",
-  "Client handoff SOP",
-];
-
 function App() {
+  const [activeView, setActiveView] = useState("Workspace");
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState([
-    {
-      type: "ai",
-      text: "Upload your company PDFs, then ask me anything about policies, SOPs, onboarding, or internal docs. I will answer with document sources when the backend finds them.",
-      sources: [],
-    },
-  ]);
+  const [messages, setMessages] = useState([welcomeMessage]);
+  const [history, setHistory] = useState([]);
   const [file, setFile] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -62,11 +61,17 @@ function App() {
       { label: "Documents", value: documents.length },
       { label: "Pages", value: pages },
       { label: "Knowledge chunks", value: chunks },
+      { label: "Saved chats", value: history.length },
     ];
-  }, [documents]);
+  }, [documents, history]);
+
+  const recentChats = history.slice(-6).reverse();
+  const documentAnswers = history.filter((item) => item.sources?.length > 0).length;
+  const generalAnswers = Math.max(history.length - documentAnswers, 0);
 
   useEffect(() => {
     loadDocuments();
+    loadHistory();
   }, []);
 
   const loadDocuments = async () => {
@@ -75,6 +80,15 @@ function App() {
       setDocuments(response.data.documents || []);
     } catch (err) {
       setError(getRequestError(err, "Could not sync documents."));
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/history`);
+      setHistory(response.data.messages || []);
+    } catch (err) {
+      setError(getRequestError(err, "Could not load recent chats."));
     }
   };
 
@@ -97,8 +111,9 @@ function App() {
         ...prev,
         {
           type: "ai",
-          text: `${response.data.document.name} is indexed and ready for questions.`,
+          text: `${response.data.document.name} is indexed and ready for document questions.`,
           sources: [],
+          mode: "documents",
         },
       ]);
     } catch (err) {
@@ -113,6 +128,7 @@ function App() {
 
     if (!trimmedQuestion || isAsking) return;
 
+    setActiveView("Workspace");
     setQuestion("");
     setError("");
     setIsAsking(true);
@@ -120,19 +136,40 @@ function App() {
 
     try {
       const response = await axios.post(`${API_URL}/ask`, { question: trimmedQuestion });
-      setMessages((prev) => [
-        ...prev,
-        {
-          type: "ai",
-          text: response.data.answer,
-          sources: response.data.sources || [],
-        },
-      ]);
+      const aiMessage = {
+        type: "ai",
+        text: response.data.answer,
+        sources: response.data.sources || [],
+        mode: response.data.mode || "general",
+      };
+
+      setMessages((prev) => [...prev, aiMessage]);
+      loadHistory();
     } catch (err) {
       setError(getRequestError(err, "Could not reach Company Brain."));
     } finally {
       setIsAsking(false);
     }
+  };
+
+  const openChat = (chat) => {
+    setActiveView("Workspace");
+    setMessages([
+      welcomeMessage,
+      { type: "user", text: chat.question, sources: [] },
+      {
+        type: "ai",
+        text: chat.answer,
+        sources: chat.sources || [],
+        mode: chat.sources?.length ? "documents" : "general",
+      },
+    ]);
+  };
+
+  const startNewChat = () => {
+    setActiveView("Workspace");
+    setMessages([welcomeMessage]);
+    setQuestion("");
   };
 
   const handleDrop = (event) => {
@@ -146,6 +183,209 @@ function App() {
     }
   };
 
+  const renderChatPanel = () => (
+    <section className="chat-panel">
+      <div className="panel-header">
+        <div>
+          <p className="section-label">AI support</p>
+          <h3>Company Brain chat</h3>
+        </div>
+        {isAsking && <div className="typing-indicator">Thinking</div>}
+      </div>
+
+      <div className="messages">
+        {messages.map((msg, index) => (
+          <article className={`message ${msg.type}`} key={`${msg.type}-${index}`}>
+            <div className="message-avatar">{msg.type === "user" ? "You" : "AI"}</div>
+            <div className="message-body">
+              {msg.mode && msg.type === "ai" && (
+                <span className={`mode-pill ${msg.mode}`}>
+                  {msg.mode === "documents" ? "From documents" : "General support"}
+                </span>
+              )}
+              <p>{msg.text}</p>
+              {msg.sources?.length > 0 && (
+                <div className="sources">
+                  {msg.sources.map((source) => (
+                    <span key={`${source.chunk_id}-${source.page}`}>
+                      {source.source}, page {source.page}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="prompt-row">
+        {starterPrompts.map((prompt) => (
+          <button key={prompt} onClick={() => askQuestion(prompt)}>
+            {prompt}
+          </button>
+        ))}
+      </div>
+
+      <form
+        className="composer"
+        onSubmit={(event) => {
+          event.preventDefault();
+          askQuestion();
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Ask anything about company support, HR, operations, SOPs, or uploaded PDFs..."
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+        />
+        <button disabled={isAsking} type="submit">
+          {isAsking ? "Answering" : "Ask"}
+        </button>
+      </form>
+    </section>
+  );
+
+  const renderUploadPanel = () => (
+    <section
+      className={`upload-zone ${dragActive ? "drag-active" : ""}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragLeave={() => setDragActive(false)}
+      onDrop={handleDrop}
+    >
+      <div className="upload-icon">+</div>
+      <p className="section-label">Upload center</p>
+      <h3>Add company PDFs</h3>
+      <p>Upload sample policies, onboarding manuals, SOPs, or technical guides for document-grounded answers.</p>
+      <label className="file-picker">
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={(event) => setFile(event.target.files[0])}
+        />
+        {file ? file.name : "Choose PDF"}
+      </label>
+      <button className="upload-button" disabled={isUploading} onClick={() => uploadPDF()}>
+        {isUploading ? "Indexing..." : "Upload and index"}
+      </button>
+    </section>
+  );
+
+  const renderDocumentList = () => (
+    <section className="document-list">
+      <div className="panel-header compact">
+        <div>
+          <p className="section-label">Knowledge base</p>
+          <h3>Indexed documents</h3>
+        </div>
+      </div>
+
+      {documents.length === 0 ? (
+        <p className="empty-state">No PDFs indexed yet.</p>
+      ) : (
+        documents.map((doc) => (
+          <article className="document-item" key={doc.id}>
+            <div className="doc-icon">PDF</div>
+            <div>
+              <strong>{doc.name}</strong>
+              <span>
+                {doc.pages} pages - {doc.chunks} chunks
+              </span>
+            </div>
+          </article>
+        ))
+      )}
+    </section>
+  );
+
+  const renderMainView = () => {
+    if (activeView === "Documents") {
+      return (
+        <div className="page-grid">
+          {renderUploadPanel()}
+          {renderDocumentList()}
+        </div>
+      );
+    }
+
+    if (activeView === "Analytics") {
+      return (
+        <section className="full-panel">
+          <div className="panel-header compact">
+            <div>
+              <p className="section-label">Usage analytics</p>
+              <h3>Demo workspace activity</h3>
+            </div>
+          </div>
+          <div className="analytics-grid">
+            <div className="analytics-card">
+              <span>Total chats</span>
+              <strong>{history.length}</strong>
+            </div>
+            <div className="analytics-card">
+              <span>Document answers</span>
+              <strong>{documentAnswers}</strong>
+            </div>
+            <div className="analytics-card">
+              <span>General support answers</span>
+              <strong>{generalAnswers}</strong>
+            </div>
+            <div className="analytics-card">
+              <span>Indexed files</span>
+              <strong>{documents.length}</strong>
+            </div>
+          </div>
+          <div className="insight-note">
+            Most real SaaS analytics later should include active users, top questions, unanswered topics, document usage, and AI cost.
+          </div>
+        </section>
+      );
+    }
+
+    if (activeView === "Settings") {
+      return (
+        <section className="full-panel settings-panel">
+          <div className="panel-header compact">
+            <div>
+              <p className="section-label">Workspace settings</p>
+              <h3>Company AI Support configuration</h3>
+            </div>
+          </div>
+          <div className="settings-list">
+            <div>
+              <strong>Assistant mode</strong>
+              <span>Answers from uploaded documents when available, otherwise gives general company support guidance.</span>
+            </div>
+            <div>
+              <strong>Demo privacy</strong>
+              <span>Use sample or non-confidential PDFs only until authentication, database storage, and document deletion are added.</span>
+            </div>
+            <div>
+              <strong>Backend API</strong>
+              <span>{API_URL}</span>
+            </div>
+          </div>
+          <button className="secondary-button" onClick={startNewChat}>
+            Start new chat
+          </button>
+        </section>
+      );
+    }
+
+    return (
+      <div className="content-grid">
+        {renderChatPanel()}
+        <aside className="knowledge-panel">
+          {renderUploadPanel()}
+          {renderDocumentList()}
+        </aside>
+      </div>
+    );
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -153,24 +393,33 @@ function App() {
           <div className="brand-mark">CB</div>
           <div>
             <p className="eyebrow">Company Brain</p>
-            <h1>Knowledge OS</h1>
+            <h1>AI Support OS</h1>
           </div>
         </div>
 
         <nav className="nav-list" aria-label="Primary">
-          <button className="nav-item active">Workspace</button>
-          <button className="nav-item">Documents</button>
-          <button className="nav-item">Analytics</button>
-          <button className="nav-item">Settings</button>
+          {navItems.map((item) => (
+            <button
+              className={`nav-item ${activeView === item ? "active" : ""}`}
+              key={item}
+              onClick={() => setActiveView(item)}
+            >
+              {item}
+            </button>
+          ))}
         </nav>
 
         <section className="sidebar-section">
           <p className="section-label">Recent chats</p>
-          {recentChats.map((chat) => (
-            <button className="chat-link" key={chat}>
-              {chat}
-            </button>
-          ))}
+          {recentChats.length === 0 ? (
+            <p className="empty-state small">No saved chats yet.</p>
+          ) : (
+            recentChats.map((chat) => (
+              <button className="chat-link" key={chat.created_at} onClick={() => openChat(chat)}>
+                {chat.question}
+              </button>
+            ))
+          )}
         </section>
 
         <div className="user-card">
@@ -185,14 +434,31 @@ function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Private AI assistant</p>
-            <h2>Ask across your company knowledge</h2>
+            <p className="eyebrow">Company AI support</p>
+            <h2>{activeView === "Workspace" ? "Ask anything your team needs" : activeView}</h2>
           </div>
-          <div className="status-pill">
-            <span className="pulse" />
-            Secure workspace
+          <div className="topbar-actions">
+            <button className="secondary-button" onClick={startNewChat}>
+              New chat
+            </button>
+            <div className="status-pill">
+              <span className="pulse" />
+              Live demo
+            </div>
           </div>
         </header>
+
+        <section className="mobile-tabs" aria-label="Mobile navigation">
+          {navItems.map((item) => (
+            <button
+              className={activeView === item ? "active" : ""}
+              key={item}
+              onClick={() => setActiveView(item)}
+            >
+              {item}
+            </button>
+          ))}
+        </section>
 
         <section className="insight-strip" aria-label="Workspace metrics">
           {stats.map((stat) => (
@@ -205,118 +471,7 @@ function App() {
 
         {error && <div className="error-banner">{error}</div>}
 
-        <div className="content-grid">
-          <section className="chat-panel">
-            <div className="panel-header">
-              <div>
-                <p className="section-label">AI chat</p>
-                <h3>Document-grounded answers</h3>
-              </div>
-              {isAsking && <div className="typing-indicator">Thinking</div>}
-            </div>
-
-            <div className="messages">
-              {messages.map((msg, index) => (
-                <article className={`message ${msg.type}`} key={`${msg.type}-${index}`}>
-                  <div className="message-avatar">{msg.type === "user" ? "You" : "AI"}</div>
-                  <div className="message-body">
-                    <p>{msg.text}</p>
-                    {msg.sources?.length > 0 && (
-                      <div className="sources">
-                        {msg.sources.map((source) => (
-                          <span key={`${source.chunk_id}-${source.page}`}>
-                            {source.source}, page {source.page}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-
-            <div className="prompt-row">
-              {starterPrompts.map((prompt) => (
-                <button key={prompt} onClick={() => askQuestion(prompt)}>
-                  {prompt}
-                </button>
-              ))}
-            </div>
-
-            <form
-              className="composer"
-              onSubmit={(event) => {
-                event.preventDefault();
-                askQuestion();
-              }}
-            >
-              <input
-                type="text"
-                placeholder="Ask about HR policy, onboarding, SOPs, or technical docs..."
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-              />
-              <button disabled={isAsking} type="submit">
-                {isAsking ? "Answering" : "Ask"}
-              </button>
-            </form>
-          </section>
-
-          <aside className="knowledge-panel">
-            <section
-              className={`upload-zone ${dragActive ? "drag-active" : ""}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragActive(true);
-              }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
-            >
-              <div className="upload-icon">+</div>
-              <p className="section-label">Upload center</p>
-              <h3>Add company PDFs</h3>
-              <p>
-                Drop policies, onboarding manuals, SOPs, or technical guides to make them searchable.
-              </p>
-              <label className="file-picker">
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  onChange={(event) => setFile(event.target.files[0])}
-                />
-                {file ? file.name : "Choose PDF"}
-              </label>
-              <button className="upload-button" disabled={isUploading} onClick={() => uploadPDF()}>
-                {isUploading ? "Indexing..." : "Upload and index"}
-              </button>
-            </section>
-
-            <section className="document-list">
-              <div className="panel-header compact">
-                <div>
-                  <p className="section-label">Knowledge base</p>
-                  <h3>Indexed documents</h3>
-                </div>
-              </div>
-
-              {documents.length === 0 ? (
-                <p className="empty-state">No PDFs indexed yet.</p>
-              ) : (
-                documents.map((doc) => (
-                  <article className="document-item" key={doc.id}>
-                    <div className="doc-icon">PDF</div>
-                    <div>
-                      <strong>{doc.name}</strong>
-                      <span>
-                        {doc.pages} pages - {doc.chunks} chunks
-                      </span>
-                    </div>
-                  </article>
-                ))
-              )}
-            </section>
-          </aside>
-        </div>
+        {renderMainView()}
       </main>
     </div>
   );

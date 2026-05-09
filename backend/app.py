@@ -111,11 +111,20 @@ def build_prompt(question: str, retrieved_chunks):
         for item in retrieved_chunks
     )
 
+    context_instruction = (
+        "Relevant company document context is available below. Use it first and cite source names and page numbers "
+        "when it helps the answer."
+        if context
+        else "No relevant company document context is available for this question."
+    )
+
     return f"""
-You are Company Brain, a secure internal company knowledge assistant.
-Answer using only the provided company document context.
-If the answer is not present in the context, say that the uploaded documents do not contain enough information.
-Keep the answer clear, useful, and grounded. Include source names and page numbers when relevant.
+You are Company Brain, a helpful AI support assistant for companies.
+You help employees, HR teams, founders, operations teams, and managers with clear practical answers.
+You can answer general business, HR, onboarding, policy, operations, productivity, and technical documentation questions.
+{context_instruction}
+If document context is missing or not relevant, answer from general knowledge and clearly say it is general guidance, not from uploaded documents.
+Keep answers useful, structured, and easy to act on.
 
 Context:
 {context}
@@ -201,31 +210,29 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @app.post("/ask")
 def ask_question(request: QuestionRequest):
-    if chunk_matrix is None or vectorizer is None:
-        return {
-            "question": request.question,
-            "answer": "Please upload at least one company PDF before asking a question.",
-            "sources": [],
-        }
-
     question = request.question.strip()
 
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    query_vector = vectorizer.transform([question])
-    similarities = cosine_similarity(query_vector, chunk_matrix).flatten()
-    ranked_indices = similarities.argsort()[::-1][: min(TOP_K, len(chunks))]
-
     retrieved_chunks = []
-    for chunk_index in ranked_indices:
-        item = chunks[int(chunk_index)]
-        retrieved_chunks.append(
-            {
-                **item,
-                "score": float(similarities[int(chunk_index)]),
-            }
-        )
+    if chunk_matrix is not None and vectorizer is not None:
+        query_vector = vectorizer.transform([question])
+        similarities = cosine_similarity(query_vector, chunk_matrix).flatten()
+        ranked_indices = similarities.argsort()[::-1][: min(TOP_K, len(chunks))]
+
+        for chunk_index in ranked_indices:
+            score = float(similarities[int(chunk_index)])
+            if score <= 0:
+                continue
+
+            item = chunks[int(chunk_index)]
+            retrieved_chunks.append(
+                {
+                    **item,
+                    "score": score,
+                }
+            )
 
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
@@ -255,4 +262,5 @@ def ask_question(request: QuestionRequest):
         "question": question,
         "answer": answer,
         "sources": sources,
+        "mode": "documents" if sources else "general",
     }
