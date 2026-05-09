@@ -4,6 +4,4 @@ python-multipart==0.0.27
 python-dotenv==1.2.2
 groq==0.37.1
 pypdf==6.10.2
-sentence-transformers==3.0.1
-faiss-cpu==1.13.2
-numpy==1.26.4
+scikit-learn==1.8.0

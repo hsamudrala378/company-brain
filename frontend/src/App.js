@@ -4,6 +4,24 @@ import "./App.css";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
+const getRequestError = (err, fallback) => {
+  const detail = err.response?.data?.detail;
+
+  if (detail) {
+    return Array.isArray(detail) ? detail.map((item) => item.msg || item).join(", ") : detail;
+  }
+
+  if (err.response?.status) {
+    return `${fallback} Backend returned ${err.response.status}.`;
+  }
+
+  if (err.message) {
+    return `${fallback} ${err.message}.`;
+  }
+
+  return fallback;
+};
+
 const starterPrompts = [
   "Summarize the leave policy for a new employee.",
   "What should a new hire complete in week one?",
@@ -53,7 +71,7 @@ function App() {
       const response = await axios.get(`${API_URL}/documents`);
       setDocuments(response.data.documents || []);
     } catch (err) {
-      setError("Start the FastAPI backend to sync documents.");
+      setError(getRequestError(err, "Could not sync documents."));
     }
   };
 
@@ -81,7 +99,7 @@ function App() {
         },
       ]);
     } catch (err) {
-      setError(err.response?.data?.detail || "Upload failed. Check the backend logs.");
+      setError(getRequestError(err, "Upload failed."));
     } finally {
       setIsUploading(false);
     }
@@ -108,7 +126,7 @@ function App() {
         },
       ]);
     } catch (err) {
-      setError(err.response?.data?.detail || "Could not reach Company Brain.");
+      setError(getRequestError(err, "Could not reach Company Brain."));
     } finally {
       setIsAsking(false);
     }

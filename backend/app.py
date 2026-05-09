@@ -5,15 +5,14 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-import faiss
-import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
 from pydantic import BaseModel
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 load_dotenv()
 
@@ -34,18 +33,17 @@ app.add_middleware(
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 150
 TOP_K = 4
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 chunks = []
 documents = []
 chat_history = []
-index = None
+vectorizer = None
+chunk_matrix = None
 
 print("Company Brain API ready")
 
@@ -74,20 +72,16 @@ def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP):
 
 
 def rebuild_index():
-    global index
+    global vectorizer
+    global chunk_matrix
 
     if not chunks:
-        index = None
+        vectorizer = None
+        chunk_matrix = None
         return
 
-    embeddings = embedding_model.encode(
-        [chunk["text"] for chunk in chunks],
-        convert_to_numpy=True,
-    ).astype("float32")
-
-    dimension = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dimension)
-    index.add(embeddings)
+    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2))
+    chunk_matrix = vectorizer.fit_transform([chunk["text"] for chunk in chunks])
 
 
 def extract_pdf_chunks(file_path: Path, original_name: str, document_id: str):
@@ -139,6 +133,7 @@ def health_check():
         "status": "ready",
         "documents": len(documents),
         "chunks": len(chunks),
+        "retrieval": "tfidf",
     }
 
 
@@ -162,10 +157,18 @@ async def upload_pdf(file: UploadFile = File(...)):
     stored_name = f"{document_id}-{original_name}"
     file_path = UPLOAD_DIR / stored_name
 
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    try:
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not save uploaded PDF: {exc}") from exc
 
-    extracted_chunks = extract_pdf_chunks(file_path, original_name, document_id)
+    try:
+        extracted_chunks = extract_pdf_chunks(file_path, original_name, document_id)
+        page_count = len(PdfReader(str(file_path)).pages)
+    except Exception as exc:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Could not read this PDF: {exc}") from exc
 
     if not extracted_chunks:
         file_path.unlink(missing_ok=True)
@@ -177,13 +180,16 @@ async def upload_pdf(file: UploadFile = File(...)):
             "id": document_id,
             "name": original_name,
             "stored_name": stored_name,
-            "pages": len(PdfReader(str(file_path)).pages),
+            "pages": page_count,
             "chunks": len(extracted_chunks),
             "uploaded_at": datetime.utcnow().isoformat() + "Z",
         }
     )
 
-    rebuild_index()
+    try:
+        rebuild_index()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not index this PDF: {exc}") from exc
 
     return {
         "message": "PDF uploaded successfully",
@@ -195,7 +201,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @app.post("/ask")
 def ask_question(request: QuestionRequest):
-    if index is None:
+    if chunk_matrix is None or vectorizer is None:
         return {
             "question": request.question,
             "answer": "Please upload at least one company PDF before asking a question.",
@@ -207,20 +213,17 @@ def ask_question(request: QuestionRequest):
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    query_embedding = embedding_model.encode([question], convert_to_numpy=True).astype("float32")
-    search_k = min(TOP_K, len(chunks))
-    distances, indices = index.search(query_embedding, k=search_k)
+    query_vector = vectorizer.transform([question])
+    similarities = cosine_similarity(query_vector, chunk_matrix).flatten()
+    ranked_indices = similarities.argsort()[::-1][: min(TOP_K, len(chunks))]
 
     retrieved_chunks = []
-    for rank, chunk_index in enumerate(indices[0]):
-        if chunk_index < 0:
-            continue
-
+    for chunk_index in ranked_indices:
         item = chunks[int(chunk_index)]
         retrieved_chunks.append(
             {
                 **item,
-                "score": float(distances[0][rank]),
+                "score": float(similarities[int(chunk_index)]),
             }
         )
 
