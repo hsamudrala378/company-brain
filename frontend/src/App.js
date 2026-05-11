@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import "./App.css";
 
@@ -42,6 +42,8 @@ const getRequestError = (err, fallback) => {
 };
 
 function App() {
+  const chatPanelRef = useRef(null);
+  const composerInputRef = useRef(null);
   const [activeView, setActiveView] = useState("Workspace");
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([welcomeMessage]);
@@ -164,12 +166,21 @@ function App() {
         mode: chat.sources?.length ? "documents" : "general",
       },
     ]);
+    moveToComposer();
   };
 
   const startNewChat = () => {
     setActiveView("Workspace");
     setMessages([welcomeMessage]);
     setQuestion("");
+    moveToComposer();
+  };
+
+  const moveToComposer = () => {
+    window.setTimeout(() => {
+      chatPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      composerInputRef.current?.focus({ preventScroll: true });
+    }, 80);
   };
 
   const handleDrop = (event) => {
@@ -184,7 +195,7 @@ function App() {
   };
 
   const renderChatPanel = () => (
-    <section className="chat-panel">
+    <section className="chat-panel" ref={chatPanelRef}>
       <div className="panel-header">
         <div>
           <p className="section-label">AI agent</p>
@@ -234,6 +245,7 @@ function App() {
         }}
       >
         <input
+          ref={composerInputRef}
           type="text"
           placeholder="Message Company Brain..."
           value={question}
